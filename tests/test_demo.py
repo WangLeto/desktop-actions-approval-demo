@@ -106,6 +106,26 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(before, self.store.state['feeds'])
         self.assertEqual(self.store.state['tags']['synthetic-v1.0.0'], 'a' * 40)
 
+    def test_unknown_write_readback_and_conflict(self):
+        import base64
+        import json
+        state = dict(objects={}, feeds={}, completed={}, tags={}, events=[])
+        lose = [True]
+        def transport(path, method=None, body=None):
+            nonlocal state
+            if method == 'PUT':
+                if lose[0]:
+                    state = json.loads(base64.b64decode(body['content']))
+                raise TimeoutError('response lost')
+            return dict(sha='remote-sha', content=base64.b64encode(json.dumps(state).encode()).decode())
+        store = Store(remote=True, transport=transport)
+        store.save(dict(kind='durable'))
+        self.assertEqual(store.reconciled_writes, 1)
+        lose[0] = False
+        with self.assertRaises(TimeoutError):
+            store.save(dict(kind='not-committed'))
+        self.assertEqual(state['events'], [dict(kind='durable')])
+
     def test_tag_conflict_never_moves(self):
         self.store.state['tags']['synthetic-v1.0.0'] = 'b' * 40
         with self.assertRaisesRegex(ValueError, 'tag conflict'):

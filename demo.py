@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import zipfile
 
 FILES = {'installer.txt', 'update.txt', 'completion.json'}
@@ -133,12 +134,16 @@ def fetch_package():
 
 
 class Store:
-    def __init__(self, remote=False, state=None):
+    def __init__(self, remote=False, state=None, path="state.json", transport=api):
         self.remote = remote
+        require(re.fullmatch(r"(?:state|probe-[a-z0-9-]+)\.json", path), "invalid store path")
+        self.path = path
+        self.transport = transport
+        self.reconciled_writes = 0
         self.state = state or dict(objects={}, feeds={}, completed={}, tags={}, events=[])
         self.sha = None
         if remote:
-            record = api(f'repos/{REPOSITORY}/contents/state.json?ref=demo-store')
+            record = self.transport(f'repos/{REPOSITORY}/contents/{self.path}?ref=demo-store')
             self.sha = record['sha']
             self.state = json.loads(base64.b64decode(record['content']))
 
@@ -146,10 +151,21 @@ class Store:
         self.state['events'].append(event)
         print(json.dumps(event, sort_keys=True))
         if self.remote:
-            result = api(f'repos/{REPOSITORY}/contents/state.json', 'PUT', dict(
-                message='Record synthetic publication step', branch='demo-store', sha=self.sha,
-                content=base64.b64encode(encoded(self.state)).decode()))
-            self.sha = result['content']['sha']
+            try:
+                result = self.transport(f'repos/{REPOSITORY}/contents/{self.path}', 'PUT', dict(
+                    message='Record synthetic publication step', branch='demo-store', sha=self.sha,
+                    content=base64.b64encode(encoded(self.state)).decode()))
+                self.sha = result['content']['sha']
+            except (subprocess.CalledProcessError, TimeoutError):
+                # The remote write may have committed even though its response was lost.
+                # Only exact readback proves this write; a different state stays a failure.
+                record = self.transport(f'repos/{REPOSITORY}/contents/{self.path}?ref=demo-store')
+                actual = json.loads(base64.b64decode(record['content']))
+                if actual != self.state:
+                    raise
+                self.sha = record['sha']
+                self.reconciled_writes += 1
+                print('Reconciled unknown write outcome using exact remote readback')
 
 
 def publish(manifest, files, store, interrupt=False, production=False, fail_tag=False):
@@ -235,6 +251,9 @@ def main():
             f.write(f"attempt={src['attempt']}\napproval={approval}\nlabel={src['version']} run {src['run']} attempt {src['attempt']}\n")
     elif mode == 'publish':
         require(os.environ['APPROVED_DIGEST'] == approval, 'package changed after approval')
+        if os.getenv("SCENARIO") == "hold_60":
+            print("Holding the publisher concurrency slot for 60 seconds", flush=True)
+            time.sleep(60)
         store = Store(remote=True)
         interrupt = os.getenv('SCENARIO') == 'interrupt_once' and os.environ['GITHUB_RUN_ATTEMPT'] == '1'
         try:

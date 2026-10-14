@@ -14,7 +14,7 @@ on:
       scenario:
         description: Simulated upload behavior
         type: choice
-        options: [normal, interrupt_once]
+        options: [normal, interrupt_once, hold_60]
         default: normal
 permissions:
   contents: read
