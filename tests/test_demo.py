@@ -86,6 +86,15 @@ class Scenarios(unittest.TestCase):
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 validate_run(r, bad, '100', '1', 1)
 
+    def test_explicit_old_attempt_does_not_follow_latest_failed_attempt(self):
+        old = dict(id=100, workflow_id=1, path='.github/workflows/package.yml', event='workflow_dispatch',
+                   head_branch='main', repository=dict(full_name='WangLeto/desktop-actions-approval-demo'),
+                   run_attempt=1, status='completed', conclusion='success')
+        latest = dict(old, run_attempt=2, conclusion='failure')
+        validate_run(latest, old, '100', '1', 1)
+        with self.assertRaisesRegex(ValueError, 'not successful'):
+            validate_run(latest, latest, '100', '2', 1)
+
     def test_tag_failure_then_tag_only_after_newer_feed(self):
         with self.assertRaisesRegex(RuntimeError, 'fake tag API failure'):
             publish(self.m, self.f, self.store, production=True, fail_tag=True)
