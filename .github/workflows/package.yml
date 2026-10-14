@@ -1,0 +1,42 @@
+name: Package synthetic files
+run-name: Package ${{ inputs.version }} / ${{ inputs.fixture }}
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Synthetic version (three integers)
+        default: 1.0.0
+        required: true
+        type: string
+      fixture:
+        description: Validation fixture
+        type: choice
+        options: [valid, tampered, missing, fail, cancel]
+        default: valid
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create tiny synthetic package
+        env:
+          VERSION: ${{ inputs.version }}
+          FIXTURE: ${{ inputs.fixture }}
+        run: python3 demo.py package
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: package-${{ github.run_id }}-${{ github.run_attempt }}
+          path: package/
+          retention-days: 2
+          if-no-files-found: error
+      - name: Deliberately fail after retention
+        if: inputs.fixture == 'fail'
+        run: exit 1
+      - name: Wait for cancellation fixture
+        if: inputs.fixture == 'cancel'
+        run: sleep 240

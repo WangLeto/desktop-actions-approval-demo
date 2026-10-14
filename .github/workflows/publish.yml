@@ -1,0 +1,63 @@
+name: Publish selected package
+run-name: Publish ${{ inputs.package_run }} attempt ${{ inputs.package_attempt || 'latest' }} / ${{ inputs.scenario }}
+on:
+  workflow_dispatch:
+    inputs:
+      package_run:
+        description: Successful Package synthetic files run ID
+        required: true
+        type: string
+      package_attempt:
+        description: Attempt; blank means latest (must succeed, no fallback)
+        required: false
+        type: string
+      scenario:
+        description: Simulated upload behavior
+        type: choice
+        options: [normal, interrupt_once]
+        default: normal
+permissions:
+  contents: read
+  actions: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      attempt: ${{ steps.verify.outputs.attempt }}
+      approval: ${{ steps.verify.outputs.approval }}
+      label: ${{ steps.verify.outputs.label }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_RUN: ${{ inputs.package_run }}
+          PACKAGE_ATTEMPT: ${{ inputs.package_attempt }}
+        run: python3 demo.py prepare
+  publish:
+    name: Approve ${{ needs.prepare.outputs.label }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: demo-test
+    concurrency:
+      group: synthetic-store-writer
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Revalidate approved package and simulate publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_RUN: ${{ inputs.package_run }}
+          PACKAGE_ATTEMPT: ${{ needs.prepare.outputs.attempt }}
+          APPROVED_DIGEST: ${{ needs.prepare.outputs.approval }}
+          SCENARIO: ${{ inputs.scenario }}
+        run: python3 demo.py publish
