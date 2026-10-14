@@ -11,7 +11,7 @@ on:
       fixture:
         description: Validation fixture
         type: choice
-        options: [valid, tampered, missing, fail, cancel]
+        options: [valid, tampered, missing, fail, cancel, expire_1d]
         default: valid
 permissions:
   contents: read
@@ -32,7 +32,7 @@ jobs:
         with:
           name: package-${{ github.run_id }}-${{ github.run_attempt }}
           path: package/
-          retention-days: 2
+          retention-days: ${{ inputs.fixture == 'expire_1d' && 1 || 2 }}
           if-no-files-found: error
       - name: Deliberately fail after retention
         if: inputs.fixture == 'fail'
